@@ -23,7 +23,7 @@ pub fn synthesis_request(
     let references = format_references(responses, cfg.normalize_length, cfg.max_reference_chars);
     ChatCompletionRequest {
         model: cfg.synthesizer.clone(),
-        messages: synthesis_messages(query, &references, analysis),
+        messages: synthesis_messages(query, &references, analysis, cfg.single_source_cap),
         stream,
         temperature: Some(0.3),
     }

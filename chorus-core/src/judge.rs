@@ -31,7 +31,7 @@ pub async fn run_judge(
     let references = format_references(responses, cfg.normalize_length, cfg.max_reference_chars);
     let req = ChatCompletionRequest {
         model: cfg.judge.clone(),
-        messages: judge_messages(query, &references),
+        messages: judge_messages(query, &references, cfg.single_source_cap),
         stream: false,
         temperature: Some(0.0),
     };

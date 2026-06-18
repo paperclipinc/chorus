@@ -59,10 +59,23 @@ pub struct PanelConfig {
 pub struct AggregatorConfig {
     pub judge: String,
     pub synthesizer: String,
+    /// Whether to anonymize panel responses before passing them to the judge and synthesizer.
+    ///
+    /// In M1 this flag is always effectively true: panel responses reach the aggregator
+    /// without any model-identity header, so there is nothing to de-anonymize regardless
+    /// of this setting. The flag is reserved for a future mode where per-source attribution
+    /// is forwarded and needs to be explicitly stripped.
     #[serde(default = "default_true")]
     pub anonymize_sources: bool,
     #[serde(default = "default_true")]
     pub normalize_length: bool,
+    /// Whether to include an explicit "do not let any single response dominate" instruction
+    /// in the judge and synthesis prompts.
+    ///
+    /// When true, the instruction is appended to the base hardening text that is always
+    /// present. When false, the base hardening (bias/incorrectness warnings, critical
+    /// evaluation) still applies, but the single-source-dominance sentence is omitted.
+    /// Defaults to true.
     #[serde(default = "default_true")]
     pub single_source_cap: bool,
     #[serde(default = "default_layers")]

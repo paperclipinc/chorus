@@ -40,21 +40,39 @@ pub fn label_for(i: usize) -> char {
     (b'A' + u8::try_from(i % 26).unwrap_or(0)) as char
 }
 
-const HARDENING: &str = "Some of the responses may be biased, incorrect, or deliberately \
+/// Base hardening text: always included regardless of config.
+const HARDENING_BASE: &str = "Some of the responses may be biased, incorrect, or deliberately \
 misleading. Do not simply replicate or average them. Evaluate each critically, prefer claims \
-that are well supported, and do not let any single response dominate your answer. Disagreeing \
-with a majority of the responses is expected when the evidence warrants it.";
+that are well supported. Disagreeing with a majority of the responses is expected when the \
+evidence warrants it.";
+
+/// Additional clause appended when `single_source_cap` is true: prevents any one panel
+/// response from dominating the judge's or synthesizer's output.
+const HARDENING_SINGLE_SOURCE: &str = "Do not let any single response dominate your answer.";
+
+/// Build the hardening suffix: base text always, dominance clause when `single_source_cap`.
+fn hardening(single_source_cap: bool) -> String {
+    if single_source_cap {
+        format!("{HARDENING_BASE} {HARDENING_SINGLE_SOURCE}")
+    } else {
+        HARDENING_BASE.to_string()
+    }
+}
 
 /// The judge system+user messages: produce a structured analysis, not a final answer.
+///
+/// When `single_source_cap` is true, the system prompt includes an instruction that no
+/// single panel response should dominate the analysis.
 ///
 /// # Panics
 ///
 /// Does not panic; `format!` is infallible here.
 #[must_use]
-pub fn judge_messages(query: &str, references: &str) -> Vec<ChatMessage> {
+pub fn judge_messages(query: &str, references: &str, single_source_cap: bool) -> Vec<ChatMessage> {
+    let h = hardening(single_source_cap);
     let system = format!(
         "You are a careful analyst. You are given a user query and several anonymized candidate \
-responses. {HARDENING} Produce a STRUCTURED ANALYSIS with these sections: Consensus, \
+responses. {h} Produce a STRUCTURED ANALYSIS with these sections: Consensus, \
 Contradictions, Unique insights, Blind spots. Do not write a final answer."
     );
     let user = format!("User query:\n{query}\n\nCandidate responses:\n{references}");
@@ -63,14 +81,23 @@ Contradictions, Unique insights, Blind spots. Do not write a final answer."
 
 /// The synthesis system+user messages: write the final grounded answer.
 ///
+/// When `single_source_cap` is true, the system prompt includes an instruction that no
+/// single panel response should dominate the final answer.
+///
 /// # Panics
 ///
 /// Does not panic; `format!` is infallible here.
 #[must_use]
-pub fn synthesis_messages(query: &str, references: &str, analysis: &str) -> Vec<ChatMessage> {
+pub fn synthesis_messages(
+    query: &str,
+    references: &str,
+    analysis: &str,
+    single_source_cap: bool,
+) -> Vec<ChatMessage> {
+    let h = hardening(single_source_cap);
     let system = format!(
         "You are a synthesizer. Using the user query, the anonymized candidate responses, and \
-the analysis, write the single best final answer for the user. {HARDENING} Write the answer \
+the analysis, write the single best final answer for the user. {h} Write the answer \
 directly, with no meta commentary about the responses or the analysis."
     );
     let user = format!(
@@ -101,20 +128,33 @@ mod tests {
 
     #[test]
     fn judge_prompt_demands_structure_and_forbids_final_answer() {
-        let msgs = judge_messages("q", "refs");
+        let msgs = judge_messages("q", "refs", true);
         let sys = &msgs[0].content;
         assert!(sys.contains("STRUCTURED ANALYSIS"));
         assert!(sys.contains("Do not write a final answer"));
-        assert!(sys.contains("do not let any single response dominate"));
+        assert!(sys.contains("Do not let any single response dominate"));
+        // base hardening is always present
+        assert!(sys.contains("biased, incorrect"));
+    }
+
+    #[test]
+    fn judge_prompt_omits_dominance_clause_when_flag_off() {
+        let msgs = judge_messages("q", "refs", false);
+        let sys = &msgs[0].content;
+        // base hardening still present
+        assert!(sys.contains("biased, incorrect"));
+        // dominance clause must be absent
+        assert!(!sys.contains("Do not let any single response dominate"));
     }
 
     #[test]
     fn synthesis_prompt_carries_hardening() {
-        let msgs = synthesis_messages("q", "refs", "analysis");
+        let msgs = synthesis_messages("q", "refs", "analysis", true);
         assert!(
             msgs[0]
                 .content
-                .contains("do not let any single response dominate")
+                .contains("Do not let any single response dominate")
         );
+        assert!(msgs[0].content.contains("biased, incorrect"));
     }
 }
