@@ -8,3 +8,6 @@ pub use schema::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Cho
 
 pub mod backend;
 pub use backend::{ChatBackend, OpenAiBackend};
+
+pub mod config;
+pub use config::{Config, Profile};
