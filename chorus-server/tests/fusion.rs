@@ -41,6 +41,8 @@ fn test_config(base_url: String) -> Config {
             router: RouterConfig {
                 policy: "always_fuse".into(),
                 single_model: "b/s".into(),
+                classifier_model: None,
+                threshold: 0.5,
             },
             panel: PanelConfig {
                 members: vec!["b/a".into(), "b/b".into()],

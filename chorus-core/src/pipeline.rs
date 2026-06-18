@@ -7,7 +7,7 @@ use crate::config::Profile;
 use crate::error::Error;
 use crate::judge::run_judge;
 use crate::panel::run_panel;
-use crate::router::{AlwaysFuse, RouteDecision, Router};
+use crate::router::{AlwaysFuse, ClassifierRouter, RouteDecision, Router};
 use crate::schema::{ChatCompletionRequest, ChatCompletionResponse};
 use crate::synthesis::run_synthesis;
 use crate::usage::UsageAccumulator;
@@ -16,15 +16,35 @@ use crate::usage::UsageAccumulator;
 #[must_use]
 pub struct Pipeline {
     backend: Arc<dyn ChatBackend>,
-    router: Arc<dyn Router>,
 }
 
 impl Pipeline {
-    /// Construct with the M1 [`AlwaysFuse`] router.
+    /// Construct the pipeline.  The router is built per-profile inside [`run`](Self::run).
     pub fn new(backend: Arc<dyn ChatBackend>) -> Self {
-        Self {
-            backend,
-            router: Arc::new(AlwaysFuse),
+        Self { backend }
+    }
+
+    /// Choose a router based on `profile.router.policy`.
+    ///
+    /// * `"classifier"` -- [`ClassifierRouter`] using `classifier_model` (validated `Some`
+    ///   by config) and the configured threshold.
+    /// * anything else (including `"always_fuse"`) -- [`AlwaysFuse`].
+    fn router_for(&self, profile: &Profile) -> Arc<dyn Router> {
+        match profile.router.policy.as_str() {
+            "classifier" => {
+                // validated at config load: classifier_model is Some for this policy
+                let model = profile
+                    .router
+                    .classifier_model
+                    .clone()
+                    .unwrap_or_else(|| profile.router.single_model.clone());
+                Arc::new(ClassifierRouter::new(
+                    Arc::clone(&self.backend),
+                    model,
+                    profile.router.threshold,
+                ))
+            }
+            _ => Arc::new(AlwaysFuse),
         }
     }
 
@@ -40,9 +60,11 @@ impl Pipeline {
         profile: &Profile,
         req: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, Error> {
-        // Router gate. `AlwaysFuse` never returns `Single`, but the branch is
-        // here so a different router can be injected without touching the rest.
-        if self.router.decide(req).await == RouteDecision::Single {
+        // Router gate: build the router from the profile, then decide.
+        let router = self.router_for(profile);
+        let decision = router.decide(req).await;
+        tracing::info!(profile = %profile.name, ?decision, "router decision");
+        if decision == RouteDecision::Single {
             let mut single = req.clone();
             single.model.clone_from(&profile.router.single_model);
             single.stream = false;
@@ -209,5 +231,41 @@ mod tests {
         let p = Pipeline::new(Arc::new(JudgeFailsBackend));
         let out = p.run(&profile(), &req()).await.unwrap();
         assert_eq!(out.first_content(), "FINAL DESPITE NO JUDGE");
+    }
+
+    /// Returns a low difficulty score for `b/cheap` and "SINGLE ANSWER" for `b/single`.
+    /// Any other model gets a generic panel response.
+    struct RoutingBackend;
+
+    #[async_trait]
+    impl ChatBackend for RoutingBackend {
+        async fn complete(
+            &self,
+            req: &ChatCompletionRequest,
+        ) -> Result<ChatCompletionResponse, Error> {
+            let content = match req.model.as_str() {
+                "b/cheap" => "0.1", // low difficulty => Single
+                "b/single" => "SINGLE ANSWER",
+                other => return Ok(resp(other, "panel", 1)),
+            };
+            Ok(resp(&req.model, content, 1))
+        }
+    }
+
+    #[tokio::test]
+    async fn classifier_easy_query_routes_to_single_model() {
+        // RoutingBackend answers the difficulty model with a low score, so the
+        // classifier routes to Single; no panel/judge/synth is invoked.
+        let p = {
+            let mut p = profile();
+            p.router.policy = "classifier".into();
+            p.router.classifier_model = Some("b/cheap".into());
+            p.router.single_model = "b/single".into();
+            p.router.threshold = 0.5;
+            p
+        };
+        let pipe = Pipeline::new(Arc::new(RoutingBackend));
+        let out = pipe.run(&p, &req()).await.unwrap();
+        assert_eq!(out.first_content(), "SINGLE ANSWER");
     }
 }
