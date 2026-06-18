@@ -1,9 +1,4 @@
-mod app;
-mod error;
-mod handlers;
-mod metrics;
-mod sse;
-mod state;
+use chorus_server::{app, metrics, state};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +12,7 @@ use figment::providers::{Env, Format, Toml};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
-use crate::state::AppState;
+use state::AppState;
 
 fn load_config() -> anyhow::Result<Config> {
     let path = std::env::var("CHORUS_CONFIG").unwrap_or_else(|_| "config.toml".into());

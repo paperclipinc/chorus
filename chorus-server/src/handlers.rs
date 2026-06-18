@@ -37,6 +37,10 @@ fn profile_name(model: &str) -> Result<&str, Error> {
         .ok_or_else(|| Error::InvalidModel(model.to_string()))
 }
 
+/// # Errors
+///
+/// Returns an [`ApiError`] if the model alias is invalid, the profile is not found,
+/// the concurrency limiter is closed, or the pipeline returns an error.
 pub async fn chat_completions(
     State(state): State<AppState>,
     Json(req): Json<ChatCompletionRequest>,

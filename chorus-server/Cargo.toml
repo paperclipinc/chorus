@@ -5,6 +5,14 @@ license.workspace = true
 version.workspace = true
 repository.workspace = true
 
+[lib]
+name = "chorus_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chorus-server"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
@@ -27,3 +35,5 @@ futures.workspace = true
 [dev-dependencies]
 wiremock = "0.6"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
