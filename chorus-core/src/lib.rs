@@ -13,7 +13,7 @@ pub mod config;
 pub use config::{Config, Profile};
 
 pub mod router;
-pub use router::{RouteDecision, Router};
+pub use router::{ClassifierRouter, RouteDecision, Router};
 
 pub mod prompts;
 
