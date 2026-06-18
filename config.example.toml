@@ -1,0 +1,33 @@
+# Chorus example configuration.
+# Copy this file to config.toml and fill in your values.
+# Set the environment variable named by api_key_env before starting the server.
+
+[server]
+bind = "0.0.0.0:8080"
+max_concurrent_requests = 64
+
+[backend]
+base_url = "http://localhost:8000/v1"
+api_key_env = "CHORUS_BACKEND_KEY"
+timeout_ms = 120000
+
+[[profiles]]
+name = "research"
+
+  [profiles.router]
+  policy = "always_fuse"
+  single_model = "your/strong-model"
+
+  [profiles.panel]
+  members = ["your/model-a", "your/model-b", "your/model-c"]
+  self_moa = false
+  min_quorum = 2
+  timeout_ms = 90000
+
+  [profiles.aggregator]
+  judge = "your/strong-model"
+  synthesizer = "your/other-strong-model"
+  anonymize_sources = true
+  normalize_length = true
+  single_source_cap = true
+  layers = 1

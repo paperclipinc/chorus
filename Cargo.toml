@@ -1,0 +1,27 @@
+[workspace]
+members = ["chorus-core", "chorus-server"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+version = "0.0.0"
+repository = "https://github.com/paperclipinc/chorus"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "sync", "time"] }
+async-trait = "0.1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+futures = "0.3"
+tracing = "0.1"
