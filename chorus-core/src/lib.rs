@@ -28,3 +28,6 @@ pub use judge::{JudgeOutcome, run_judge};
 
 pub mod synthesis;
 pub use synthesis::{run_synthesis, synthesis_request};
+
+pub mod pipeline;
+pub use pipeline::Pipeline;
