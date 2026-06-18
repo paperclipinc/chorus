@@ -22,3 +22,9 @@ pub use usage::UsageAccumulator;
 
 pub mod panel;
 pub use panel::{PanelOutcome, run_panel};
+
+pub mod judge;
+pub use judge::{JudgeOutcome, run_judge};
+
+pub mod synthesis;
+pub use synthesis::{run_synthesis, synthesis_request};
