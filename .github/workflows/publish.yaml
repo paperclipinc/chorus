@@ -1,0 +1,103 @@
+name: Publish signed image
+
+# Triggers: every push to main (produces a sortable edge tag for mono
+# image-automation) and every semver tag push (produces the release tag).
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+# Top-level permissions are restrictive; the job overrides what it needs.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Build, push, cosign keyless-sign, and SBOM-attest the chorus-server image
+    # under ghcr.io/paperclipinc/chorus (supply chain, issue #19).
+    # Keyless signing uses the workflow GitHub OIDC identity (id-token: write);
+    # there is NO private key stored in the repo or in secrets. The image is
+    # pushed by digest and the signature and SBOM attestation are bound to that
+    # digest, so they survive any subsequent re-tagging.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE: ghcr.io/paperclipinc/chorus
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Compute the sortable main-branch tag that mono image-automation expects
+      # (main-<UTCdate +%Y%m%d%H%M%S>-<short-sha>). On a v* tag push this step
+      # produces the semver tag and "latest" instead.
+      - name: Compute image tags
+        id: tags
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            # Semver release: strip refs/tags/ prefix
+            SEMVER="${GITHUB_REF#refs/tags/}"
+            echo "tags=${IMAGE}:${SEMVER},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            # Main branch push: sortable tag for image-automation + edge alias
+            TS="$(date -u +%Y%m%d%H%M%S)"
+            echo "tags=${IMAGE}:main-${TS}-${SHORT_SHA},${IMAGE}:edge" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Sign the pushed digest with the workflow OIDC identity. The identity
+      # regexp in SECURITY.md pins to exactly this workflow file path, so the
+      # filename must not change.
+      - name: Cosign keyless sign by digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-chorus.spdx.json
+
+      - name: Cosign attest the SBOM by digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign attest --yes \
+            --predicate sbom-chorus.spdx.json \
+            --type spdxjson \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-chorus
+          path: sbom-chorus.spdx.json
