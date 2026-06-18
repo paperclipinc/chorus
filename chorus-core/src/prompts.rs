@@ -106,6 +106,60 @@ directly, with no meta commentary about the responses or the analysis."
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
 
+/// Messages that ask a cheap model to rate query difficulty as a single number.
+#[must_use]
+pub fn difficulty_messages(query: &str) -> Vec<ChatMessage> {
+    let system = "You are a routing classifier. Rate how hard the user query is to answer \
+well, as a single decimal number between 0.0 (trivial, a single capable model answers it \
+perfectly) and 1.0 (very hard, benefits from multiple models and synthesis). Reply with ONLY \
+the number, nothing else.";
+    vec![
+        ChatMessage::system(system),
+        ChatMessage::user(format!("Query:\n{query}")),
+    ]
+}
+
+/// Parse a difficulty score in 0.0..=1.0 from a model reply, tolerating surrounding text.
+/// Returns None if no parseable number is found.
+#[must_use]
+pub fn parse_difficulty(text: &str) -> Option<f32> {
+    // Find the first run that parses as a float; clamp to 0.0..=1.0.
+    let mut buf = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() || ch == '.' {
+            buf.push(ch);
+        } else if !buf.is_empty() {
+            break;
+        }
+    }
+    buf.parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
+}
+
+#[cfg(test)]
+mod difficulty_tests {
+    use super::{difficulty_messages, parse_difficulty};
+
+    #[test]
+    fn difficulty_prompt_asks_for_a_single_number() {
+        let msgs = difficulty_messages("q");
+        assert!(msgs[0].content.contains("single"));
+        assert!(msgs[0].content.contains("ONLY the number"));
+    }
+
+    #[test]
+    fn parses_bare_and_noisy_scores() {
+        assert_eq!(parse_difficulty("0.8"), Some(0.8));
+        assert_eq!(parse_difficulty("The difficulty is 0.3 overall"), Some(0.3));
+        assert_eq!(parse_difficulty("1"), Some(1.0));
+        assert_eq!(parse_difficulty("nonsense"), None);
+    }
+
+    #[test]
+    fn clamps_out_of_range() {
+        assert_eq!(parse_difficulty("2.5"), Some(1.0));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

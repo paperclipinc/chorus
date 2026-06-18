@@ -44,7 +44,7 @@ single-layer, and the hardened anonymized synthesis judge. No tools.
 
 Make it cost-optimal and produce the headline datapoint.
 
-- ⬜ Router policy: a cheap difficulty classifier (`trait Router` impl) with a per-deployment
+- ✅ Router policy: a cheap difficulty classifier (`trait Router` impl) with a per-deployment
   threshold; fail-open to fusion.
 - ⬜ Threshold calibration on real traffic; report the routed cost-quality curve (single vs
   fused-only vs routed).

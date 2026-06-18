@@ -31,3 +31,21 @@ name = "research"
   normalize_length = true
   single_source_cap = true
   layers = 1
+
+# A profile that routes easy queries to a single model and fuses only the hard ones.
+[[profiles]]
+name = "research-routed"
+
+  [profiles.router]
+  policy = "classifier"
+  classifier_model = "your/cheap-fast-model"
+  threshold = 0.5
+  single_model = "your/strong-model"
+
+  [profiles.panel]
+  members = ["your/model-a", "your/model-b", "your/model-c"]
+  min_quorum = 2
+
+  [profiles.aggregator]
+  judge = "your/strong-model"
+  synthesizer = "your/other-strong-model"
