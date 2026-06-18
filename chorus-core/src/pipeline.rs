@@ -146,6 +146,8 @@ mod tests {
             router: RouterConfig {
                 policy: "always_fuse".into(),
                 single_model: "b/single".into(),
+                classifier_model: None,
+                threshold: 0.5,
             },
             panel: PanelConfig {
                 members: vec!["b/a".into(), "b/b".into(), "b/c".into()],

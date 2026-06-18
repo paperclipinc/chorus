@@ -41,6 +41,10 @@ pub struct RouterConfig {
     #[serde(default = "default_router_policy")]
     pub policy: String,
     pub single_model: String,
+    #[serde(default)]
+    pub classifier_model: Option<String>,
+    #[serde(default = "default_threshold")]
+    pub threshold: f32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,6 +100,9 @@ fn default_panel_timeout_ms() -> u64 {
 fn default_router_policy() -> String {
     "always_fuse".into()
 }
+fn default_threshold() -> f32 {
+    0.5
+}
 fn default_samples() -> usize {
     3
 }
@@ -145,6 +152,29 @@ impl Config {
                     p.name
                 )));
             }
+            match p.router.policy.as_str() {
+                "always_fuse" => {}
+                "classifier" => {
+                    if p.router.classifier_model.is_none() {
+                        return Err(Error::Config(format!(
+                            "profile {}: classifier policy requires router.classifier_model",
+                            p.name
+                        )));
+                    }
+                }
+                other => {
+                    return Err(Error::Config(format!(
+                        "profile {}: unknown router policy {other}",
+                        p.name
+                    )));
+                }
+            }
+            if !(0.0..=1.0).contains(&p.router.threshold) {
+                return Err(Error::Config(format!(
+                    "profile {}: router.threshold {} out of range 0.0..=1.0",
+                    p.name, p.router.threshold
+                )));
+            }
         }
         Ok(())
     }
@@ -160,6 +190,7 @@ impl Profile {
     /// Every model id referenced by this profile, for the loop guard.
     fn all_models(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.router.single_model.as_str())
+            .chain(self.router.classifier_model.as_deref())
             .chain(self.panel.members.iter().map(String::as_str))
             .chain(std::iter::once(self.aggregator.judge.as_str()))
             .chain(std::iter::once(self.aggregator.synthesizer.as_str()))
@@ -176,6 +207,8 @@ mod tests {
             router: RouterConfig {
                 policy: "always_fuse".into(),
                 single_model: "b/s".into(),
+                classifier_model: None,
+                threshold: 0.5,
             },
             panel: PanelConfig {
                 members: members.into_iter().map(Into::into).collect(),
@@ -243,6 +276,44 @@ mod tests {
     fn rejects_multi_layer() {
         let mut p = profile("research", vec!["b/a", "b/b"], 2);
         p.aggregator.layers = 2;
+        assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn classifier_policy_requires_model() {
+        let mut p = profile("research", vec!["b/a", "b/b"], 2);
+        p.router.policy = "classifier".into();
+        p.router.classifier_model = None;
+        assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn classifier_policy_with_model_passes() {
+        let mut p = profile("research", vec!["b/a", "b/b"], 2);
+        p.router.policy = "classifier".into();
+        p.router.classifier_model = Some("b/cheap".into());
+        assert!(cfg(vec![p]).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_router_policy() {
+        let mut p = profile("research", vec!["b/a", "b/b"], 2);
+        p.router.policy = "magic".into();
+        assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn rejects_threshold_out_of_range() {
+        let mut p = profile("research", vec!["b/a", "b/b"], 2);
+        p.router.threshold = 1.5;
+        assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn rejects_fusion_alias_in_classifier_model() {
+        let mut p = profile("research", vec!["b/a", "b/b"], 2);
+        p.router.policy = "classifier".into();
+        p.router.classifier_model = Some("fusion/research".into());
         assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
     }
 }
