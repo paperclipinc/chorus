@@ -43,11 +43,22 @@ referencing another `fusion/*` alias, so the gateway cannot recurse.
 
 A cheap pre-panel decision: is this query hard enough to justify the panel? Easy queries are
 forwarded to a single strong model; hard queries are fused. This is the primary cost lever: a
-system that always fuses is dominated on cost by one that routes. The router is a trait with
-pluggable policies (an `AlwaysFuse` baseline and a difficulty classifier). It fails open to
-fusion, and its decision is recorded in metrics so the cost saving is measured, not assumed.
-Routers generalize across model pairs but degrade under domain shift, so the threshold is
-calibrated to the deployment's traffic.
+system that always fuses is dominated on cost by one that routes.
+
+The router is a trait with two implemented policies:
+
+- `always_fuse`: every query goes through the full panel and synthesis path. The baseline.
+- `classifier`: a cheap LLM-judge scores query difficulty on a 0.0 to 1.0 scale. Queries
+  scoring below the configurable threshold go to a single strong model; those at or above
+  the threshold go through the full fusion path. The classifier is implemented and ships
+  with configurable `classifier_model` and `threshold` fields in the profile router config.
+  It fails open to fusion on any backend error or unparseable score, so the cost saving is
+  always conservative. The router decision is recorded in metrics so the saving is measured,
+  not assumed.
+
+Routers generalize across model pairs but degrade under domain shift. Threshold calibration
+on real traffic is the remaining deploy-time step: the classifier is implemented; the
+threshold value for a given workload must be tuned against observed traffic.
 
 ### Panel
 
