@@ -32,17 +32,19 @@ impl Pipeline {
     fn router_for(&self, profile: &Profile) -> Arc<dyn Router> {
         match profile.router.policy.as_str() {
             "classifier" => {
-                // validated at config load: classifier_model is Some for this policy
-                let model = profile
-                    .router
-                    .classifier_model
-                    .clone()
-                    .unwrap_or_else(|| profile.router.single_model.clone());
-                Arc::new(ClassifierRouter::new(
-                    Arc::clone(&self.backend),
-                    model,
-                    profile.router.threshold,
-                ))
+                if let Some(model) = profile.router.classifier_model.clone() {
+                    Arc::new(ClassifierRouter::new(
+                        Arc::clone(&self.backend),
+                        model,
+                        profile.router.threshold,
+                    ))
+                } else {
+                    tracing::warn!(
+                        profile = %profile.name,
+                        "classifier policy without classifier_model; falling back to always-fuse"
+                    );
+                    Arc::new(AlwaysFuse)
+                }
             }
             _ => Arc::new(AlwaysFuse),
         }

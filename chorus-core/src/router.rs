@@ -168,4 +168,13 @@ mod classifier_tests {
         let r = ClassifierRouter::new(b, "cheap".into(), 0.5);
         assert_eq!(r.decide(&req()).await, RouteDecision::Fuse);
     }
+
+    #[tokio::test]
+    async fn score_at_threshold_fuses() {
+        // The comparison is `score < threshold`, so a score exactly equal to the
+        // threshold is NOT less than it and therefore routes to Fuse (higher quality).
+        let b = Arc::new(ScoreBackend { reply: Ok("0.5") });
+        let r = ClassifierRouter::new(b, "cheap".into(), 0.5);
+        assert_eq!(r.decide(&req()).await, RouteDecision::Fuse);
+    }
 }

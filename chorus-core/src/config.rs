@@ -41,8 +41,16 @@ pub struct RouterConfig {
     #[serde(default = "default_router_policy")]
     pub policy: String,
     pub single_model: String,
+    /// The cheap model used to score query difficulty when `policy` is `"classifier"`.
+    ///
+    /// Required when `policy = "classifier"`; validated by [`Config::validate`].
+    /// Ignored for all other policies.
     #[serde(default)]
     pub classifier_model: Option<String>,
+    /// Fuse when the difficulty score is greater than or equal to this value (range 0.0..=1.0).
+    ///
+    /// A score below the threshold routes to the single model; a score at or above it
+    /// triggers the full panel-judge-synthesis path. Defaults to `0.5`.
     #[serde(default = "default_threshold")]
     pub threshold: f32,
 }
