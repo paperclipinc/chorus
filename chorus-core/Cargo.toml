@@ -17,6 +17,7 @@ async-trait.workspace = true
 reqwest.workspace = true
 futures.workspace = true
 tracing.workspace = true
+metrics = "0.24"
 
 [dev-dependencies]
 wiremock = "0.6"

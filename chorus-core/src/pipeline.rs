@@ -64,6 +64,16 @@ impl Pipeline {
         let router = self.router_for(profile);
         let decision = router.decide(req).await;
         tracing::info!(profile = %profile.name, ?decision, "router decision");
+        let branch = match decision {
+            RouteDecision::Fuse => "fuse",
+            RouteDecision::Single => "single",
+        };
+        metrics::counter!(
+            "chorus_router_decisions_total",
+            "profile" => profile.name.clone(),
+            "decision" => branch,
+        )
+        .increment(1);
         if decision == RouteDecision::Single {
             let mut single = req.clone();
             single.model.clone_from(&profile.router.single_model);
