@@ -19,3 +19,6 @@ pub mod prompts;
 
 pub mod usage;
 pub use usage::UsageAccumulator;
+
+pub mod panel;
+pub use panel::{PanelOutcome, run_panel};
