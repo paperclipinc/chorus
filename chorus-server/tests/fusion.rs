@@ -9,6 +9,7 @@ use chorus_core::config::{
     AggregatorConfig, BackendConfig, Config, PanelConfig, Profile, RouterConfig, ServerConfig,
 };
 use http_body_util::BodyExt;
+use metrics::set_global_recorder;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
@@ -98,4 +99,48 @@ async fn end_to_end_fused_completion() {
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["choices"][0]["message"]["content"], "FUSED");
     assert_eq!(v["model"], "fusion/research");
+}
+
+#[tokio::test]
+async fn metrics_endpoint_exposes_request_counter() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body_for("FUSED")))
+        .mount(&upstream)
+        .await;
+
+    let config = test_config(format!("{}/v1", upstream.uri()));
+    let backend = Arc::new(
+        OpenAiBackend::new(config.backend.base_url.clone(), "k", Duration::from_secs(5)).unwrap(),
+    );
+    let recorder = PrometheusBuilder::new().build_recorder();
+    let handle = recorder.handle();
+    set_global_recorder(recorder).ok();
+    let state = chorus_server::state::AppState {
+        limiter: Arc::new(Semaphore::new(8)),
+        pipeline: Arc::new(Pipeline::new(backend)),
+        metrics: handle,
+        config: Arc::new(config),
+    };
+    let app = chorus_server::app::build(state);
+
+    let post = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"fusion/research","messages":[{"role":"user","content":"q"}]}"#,
+        ))
+        .unwrap();
+    let _ = app.clone().oneshot(post).await.unwrap();
+
+    let get = Request::builder()
+        .uri("/metrics")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(get).await.unwrap();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(text.contains("chorus_requests_total"));
 }

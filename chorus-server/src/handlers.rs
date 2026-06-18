@@ -66,6 +66,9 @@ pub async fn chat_completions(
         return Ok(crate::sse::stream_fusion(state.clone(), profile, req).await);
     }
 
+    let started = std::time::Instant::now();
     let resp = state.pipeline.run(&profile, &req).await?;
+    metrics::histogram!("chorus_request_seconds", "profile" => name.to_string())
+        .record(started.elapsed().as_secs_f64());
     Ok((StatusCode::OK, Json(resp)).into_response())
 }
