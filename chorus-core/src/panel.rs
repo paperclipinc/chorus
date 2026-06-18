@@ -36,7 +36,7 @@ fn member_request(
     if self_moa {
         // Vary temperature across samples of the single model for diversity.
         #[allow(clippy::cast_precision_loss)]
-        let temp = 0.3 + 0.2 * (idx as f32);
+        let temp = (0.3 + 0.2 * (idx as f32)).min(2.0);
         req.temperature = Some(temp);
     }
     req
