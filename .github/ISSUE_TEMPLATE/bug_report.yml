@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a defect in the fusion gateway
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce the behavior (config profile, request body, commands).
+      placeholder: |
+        1. With this profile in config.toml ...
+        2. POST this /v1/chat/completions body ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: chorus version, backend (vLLM, Ollama, Bifrost, OpenAI), deployment method, profile config.
+      placeholder: |
+        - chorus version:
+        - Backend:
+        - Deployment method (binary, docker, kubernetes):
+        - Profile (panel size, judge, synthesizer, layers):
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant chorus logs. Remove any secret values before posting.
+      render: text
+    validations:
+      required: false
