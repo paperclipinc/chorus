@@ -201,6 +201,35 @@ mod tests {
         assert!(!sys.contains("Do not let any single response dominate"));
     }
 
+    // ---------------------------------------------------------------------------
+    // Test 4: label_for wraps at 26 (A..Z then back to A)
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn label_for_wraps_after_z() {
+        assert_eq!(label_for(0), 'A', "slot 0 must be 'A'");
+        assert_eq!(label_for(25), 'Z', "slot 25 must be 'Z'");
+        // slot 26 must wrap back to 'A'
+        assert_eq!(label_for(26), 'A', "slot 26 must wrap to 'A'");
+    }
+
+    /// Verify the wrap via `format_references` with 27 responses.
+    /// The 27th response (index 26) is labelled "Response A" again because
+    /// `label_for` wraps at 26. This is a design limitation documented here:
+    /// panels with more than 26 members will produce duplicate labels.
+    #[test]
+    fn format_references_27th_label_wraps_to_a() {
+        let responses: Vec<String> = (0..27).map(|i| format!("answer{i}")).collect();
+        let formatted = format_references(&responses, false, 1_000);
+        // The 27th entry (index 26) must carry label A again.
+        // Because entry 0 is also label A, we count occurrences of "Response A:" to confirm
+        // the wrap produces a duplicate -- both slots 0 and 26 bear that label.
+        let count = formatted.matches("Response A:").count();
+        assert_eq!(
+            count, 2,
+            "expected exactly 2 'Response A:' entries (slots 0 and 26), got {count}"
+        );
+    }
+
     #[test]
     fn synthesis_prompt_carries_hardening() {
         let msgs = synthesis_messages("q", "refs", "analysis", true);
