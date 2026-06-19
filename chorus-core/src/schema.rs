@@ -31,6 +31,8 @@ pub struct ChatCompletionRequest {
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub max_tokens: Option<u32>,
 }
 
 impl ChatCompletionRequest {

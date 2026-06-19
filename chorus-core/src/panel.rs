@@ -166,6 +166,7 @@ mod tests {
             messages: vec![ChatMessage::user("hi")],
             stream: false,
             temperature: None,
+            max_tokens: None,
         }
     }
 

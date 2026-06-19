@@ -116,6 +116,7 @@ impl Pipeline {
             &query,
             &panel.responses,
             &analysis,
+            req.max_tokens,
         )
         .await?;
         acc.add(resp.usage.as_ref());
@@ -209,6 +210,7 @@ mod tests {
             messages: vec![ChatMessage::user("what is X")],
             stream: false,
             temperature: None,
+            max_tokens: None,
         }
     }
 
