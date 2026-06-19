@@ -1,4 +1,8 @@
-FROM rust:1-slim AS chef
+# Pin the build base to Debian 12 (bookworm) so the binary links against the
+# same glibc (2.36) as the distroless/cc-debian12 runtime below. The floating
+# rust:1-slim tag moved to a newer Debian (glibc 2.38), producing a binary the
+# runtime could not load (GLIBC_2.38 not found).
+FROM rust:1-slim-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
