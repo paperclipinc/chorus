@@ -59,6 +59,7 @@ impl Router for ClassifierRouter {
             messages: difficulty_messages(req.last_user_text()),
             stream: false,
             temperature: Some(0.0),
+            max_tokens: None,
         };
         match self.backend.complete(&scoring).await {
             Ok(resp) => match parse_difficulty(resp.first_content()) {
@@ -90,6 +91,7 @@ mod tests {
             messages: vec![ChatMessage::user("hi")],
             stream: false,
             temperature: None,
+            max_tokens: None,
         };
         assert_eq!(r.decide(&req).await, RouteDecision::Fuse);
     }
@@ -138,6 +140,7 @@ mod classifier_tests {
             messages: vec![ChatMessage::user("hi")],
             stream: false,
             temperature: None,
+            max_tokens: None,
         }
     }
 

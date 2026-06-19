@@ -34,6 +34,7 @@ pub async fn run_judge(
         messages: judge_messages(query, &references, cfg.single_source_cap),
         stream: false,
         temperature: Some(0.0),
+        max_tokens: None,
     };
     let resp = backend.complete(&req).await?;
     Ok(JudgeOutcome {
