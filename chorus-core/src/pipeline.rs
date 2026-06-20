@@ -8,9 +8,38 @@ use crate::error::Error;
 use crate::judge::run_judge;
 use crate::panel::run_panel;
 use crate::router::{AlwaysFuse, ClassifierRouter, RouteDecision, Router};
-use crate::schema::{ChatCompletionRequest, ChatCompletionResponse};
+use crate::schema::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Choice};
 use crate::synthesis::run_synthesis;
 use crate::usage::UsageAccumulator;
+
+/// Build a degraded fusion response from the strongest available panel answer
+/// when synthesis fails. The longest non-empty response is used as a
+/// deterministic "most substantive" proxy for the best answer. Usage is left
+/// `None` here because the panel and judge token costs are aggregated by the
+/// caller. Returns `None` only if no panel answer is usable, in which case the
+/// caller surfaces the synthesis error.
+fn degraded_from_panel(responses: &[String]) -> Option<ChatCompletionResponse> {
+    let best = responses
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .max_by_key(|r| r.len())?;
+    Some(ChatCompletionResponse {
+        id: "chorus-degraded".to_string(),
+        object: "chat.completion".to_string(),
+        created: 0,
+        // Set to the fusion alias by the caller alongside aggregated usage.
+        model: String::new(),
+        choices: vec![Choice {
+            index: 0,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: best.clone(),
+            },
+            finish_reason: Some("stop".to_string()),
+        }],
+        usage: None,
+    })
+}
 
 /// End-to-end `MoA` pipeline: router gate -> panel -> judge -> synthesis.
 #[must_use]
@@ -55,7 +84,9 @@ impl Pipeline {
     /// # Errors
     ///
     /// Returns [`Error::Quorum`] if fewer panel members succeed than `profile.panel.min_quorum`.
-    /// Returns [`Error::Synthesis`] if the synthesizer call fails.
+    /// Returns [`Error::Synthesis`] only if the synthesizer fails (after its retry) and no panel
+    /// answer is available to degrade to; otherwise a synthesizer failure degrades to a panel
+    /// answer rather than erroring.
     /// Returns [`Error::Backend`] if the single-model forward fails.
     pub async fn run(
         &self,
@@ -109,8 +140,11 @@ impl Pipeline {
             }
         };
 
-        // Synthesis.
-        let mut resp = run_synthesis(
+        // Synthesis, with graceful degradation to the strongest panel answer on
+        // failure. run_synthesis already retries a transient synthesizer error
+        // once; if it still fails, a single flaky synthesizer must not 502 the
+        // whole fusion when the panel produced usable answers (issue #32).
+        let mut resp = match run_synthesis(
             Arc::clone(&self.backend),
             &profile.aggregator,
             &query,
@@ -118,7 +152,22 @@ impl Pipeline {
             &analysis,
             req.max_tokens,
         )
-        .await?;
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => match degraded_from_panel(&panel.responses) {
+                Some(r) => {
+                    tracing::warn!(error = %e, "synthesis failed after retry; degrading to best panel answer");
+                    metrics::counter!(
+                        "chorus_synthesis_degraded_total",
+                        "profile" => profile.name.clone(),
+                    )
+                    .increment(1);
+                    r
+                }
+                None => return Err(e),
+            },
+        };
         acc.add(resp.usage.as_ref());
 
         // Present as the fusion alias, with aggregated usage.
@@ -245,6 +294,45 @@ mod tests {
         let p = Pipeline::new(Arc::new(JudgeFailsBackend));
         let out = p.run(&profile(), &req()).await.unwrap();
         assert_eq!(out.first_content(), "FINAL DESPITE NO JUDGE");
+    }
+
+    /// Judge succeeds, panel succeeds, but the synthesizer always fails to decode.
+    struct SynthFailsBackend;
+
+    #[async_trait]
+    impl ChatBackend for SynthFailsBackend {
+        async fn complete(
+            &self,
+            req: &ChatCompletionRequest,
+        ) -> Result<ChatCompletionResponse, Error> {
+            match req.model.as_str() {
+                "b/judge" => Ok(resp(&req.model, "Consensus: ...", 1)),
+                "b/syn" => Err(Error::Backend(
+                    "decode: error decoding response body".into(),
+                )),
+                other => Ok(resp(other, &format!("panel:{other}"), 1)),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn degrades_to_panel_answer_when_synthesis_fails() {
+        // A flaky synthesizer must not 502 the whole fusion: the pipeline falls
+        // back to the strongest panel answer instead (issue #32).
+        let p = Pipeline::new(Arc::new(SynthFailsBackend));
+        let out = p
+            .run(&profile(), &req())
+            .await
+            .expect("synthesis failure should degrade, not error");
+        assert!(
+            out.first_content().starts_with("panel:"),
+            "expected a panel answer, got {:?}",
+            out.first_content()
+        );
+        assert_eq!(out.model, "fusion/research");
+        // Panel (3) + judge (1) calls are still accounted; the degraded answer
+        // carries no synthesizer usage of its own.
+        assert_eq!(out.usage.unwrap().total_tokens, 8);
     }
 
     /// Returns a low difficulty score for `b/cheap` and "SINGLE ANSWER" for `b/single`.
