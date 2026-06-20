@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use crate::backend::ChatBackend;
-use crate::config::Profile;
+use crate::config::{AggregatorConfig, Profile};
 use crate::error::Error;
 use crate::judge::run_judge;
 use crate::panel::run_panel;
+use crate::prompts::{format_references, refine_messages};
 use crate::router::{AlwaysFuse, ClassifierRouter, RouteDecision, Router};
 use crate::schema::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Choice};
 use crate::synthesis::run_synthesis;
@@ -39,6 +40,25 @@ fn degraded_from_panel(responses: &[String]) -> Option<ChatCompletionResponse> {
         }],
         usage: None,
     })
+}
+
+/// Build the request for a refine layer: each member re-answers the query with
+/// the previous layer's anonymized answers as reference (issue #20). The model
+/// field is set per member by the panel; only the messages matter here.
+fn refine_request(
+    base: &ChatCompletionRequest,
+    cfg: &AggregatorConfig,
+    query: &str,
+    previous: &[String],
+) -> ChatCompletionRequest {
+    let references = format_references(previous, cfg.normalize_length, cfg.max_reference_chars);
+    ChatCompletionRequest {
+        model: base.model.clone(),
+        messages: refine_messages(query, &references, cfg.single_source_cap),
+        stream: false,
+        temperature: base.temperature,
+        max_tokens: base.max_tokens,
+    }
 }
 
 /// End-to-end `MoA` pipeline: router gate -> panel -> judge -> synthesis.
@@ -117,9 +137,17 @@ impl Pipeline {
         let mut acc = UsageAccumulator::default();
         let query = req.last_user_text().to_string();
 
-        // Panel.
-        let panel = run_panel(Arc::clone(&self.backend), req, &profile.panel).await?;
+        // Panel, optionally refined over multiple layers. Layer 1 answers the raw
+        // query; each subsequent layer re-runs the panel with the previous layer's
+        // answers as anonymized references so members refine. The final layer feeds
+        // judge + synthesis. layers is validated to 1..=MAX_LAYERS (issue #20).
+        let mut panel = run_panel(Arc::clone(&self.backend), req, &profile.panel).await?;
         acc.add(Some(&panel.usage));
+        for _ in 1..profile.aggregator.layers {
+            let refine_req = refine_request(req, &profile.aggregator, &query, &panel.responses);
+            panel = run_panel(Arc::clone(&self.backend), &refine_req, &profile.panel).await?;
+            acc.add(Some(&panel.usage));
+        }
 
         // Judge, with graceful degradation to an empty analysis on failure.
         let analysis = match run_judge(
@@ -271,6 +299,68 @@ mod tests {
         assert_eq!(out.model, "fusion/research");
         // 3 panel + 1 judge + 1 synth = 5 calls, each total_tokens 2 => 10.
         assert_eq!(out.usage.unwrap().total_tokens, 10);
+    }
+
+    /// Panel members tag their answer by layer: a member sees the refine prompt
+    /// only on layers after the first. The synthesizer reports whether the
+    /// references it received came from a refined layer, so the test can confirm
+    /// layering propagated end to end.
+    struct LayeredBackend;
+
+    #[async_trait]
+    impl ChatBackend for LayeredBackend {
+        async fn complete(
+            &self,
+            req: &ChatCompletionRequest,
+        ) -> Result<ChatCompletionResponse, Error> {
+            match req.model.as_str() {
+                "b/judge" => Ok(resp(&req.model, "Consensus: ...", 1)),
+                "b/syn" => {
+                    let saw_refined = req.messages.iter().any(|m| m.content.contains("refined:"));
+                    let content = if saw_refined {
+                        "FINAL over refined"
+                    } else {
+                        "FINAL over first"
+                    };
+                    Ok(resp(&req.model, content, 1))
+                }
+                other => {
+                    let is_refine = req
+                        .messages
+                        .iter()
+                        .any(|m| m.content.contains("improved standalone answer"));
+                    let content = if is_refine {
+                        format!("refined:{other}")
+                    } else {
+                        format!("first:{other}")
+                    };
+                    Ok(resp(other, &content, 1))
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn single_layer_does_not_refine() {
+        let p = Pipeline::new(Arc::new(LayeredBackend));
+        let out = p.run(&profile(), &req()).await.unwrap();
+        // layers defaults to 1, so the synthesizer sees first-layer answers only.
+        assert_eq!(out.first_content(), "FINAL over first");
+        // 3 panel + judge + synth = 5 calls => 10 tokens.
+        assert_eq!(out.usage.unwrap().total_tokens, 10);
+    }
+
+    #[tokio::test]
+    async fn multi_layer_refines_each_layer_then_synthesizes() {
+        let p = Pipeline::new(Arc::new(LayeredBackend));
+        let mut prof = profile();
+        prof.aggregator.layers = 2;
+        let out = p.run(&prof, &req()).await.unwrap();
+        // The synthesizer saw the second (refined) layer's outputs.
+        assert_eq!(out.first_content(), "FINAL over refined");
+        assert_eq!(out.model, "fusion/research");
+        // 3 panel (layer 1) + 3 panel (layer 2) + judge + synth = 8 calls => 16 tokens.
+        assert_eq!(out.usage.unwrap().total_tokens, 16);
     }
 
     struct JudgeFailsBackend;

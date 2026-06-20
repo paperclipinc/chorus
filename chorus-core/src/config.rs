@@ -90,6 +90,10 @@ pub struct AggregatorConfig {
     /// Defaults to true.
     #[serde(default = "default_true")]
     pub single_source_cap: bool,
+    /// Number of refine layers (1 to `MAX_LAYERS`, default 1). Layer 1 answers the
+    /// raw query; each subsequent layer re-runs the full panel with the previous
+    /// layer's anonymized answers as reference. Cost and latency scale linearly
+    /// with depth, so depth above 1 is reserved for offline or high-stakes paths.
     #[serde(default = "default_layers")]
     pub layers: usize,
     #[serde(default = "default_max_reference_chars")]
@@ -120,6 +124,13 @@ fn default_true() -> bool {
 fn default_layers() -> usize {
     1
 }
+
+/// Upper bound on aggregator layers. Each extra layer re-runs the whole panel,
+/// so cost and latency grow linearly with depth; this cap keeps a misconfigured
+/// profile from spending without bound. Deeper layers also propagate a bad
+/// member's influence, so multi-layer is intended for offline or high-stakes
+/// paths (issue #20).
+const MAX_LAYERS: usize = 4;
 fn default_max_reference_chars() -> usize {
     8_000
 }
@@ -154,10 +165,10 @@ impl Config {
                     p.name, p.panel.min_quorum
                 )));
             }
-            if p.aggregator.layers != 1 {
+            if p.aggregator.layers < 1 || p.aggregator.layers > MAX_LAYERS {
                 return Err(Error::Config(format!(
-                    "profile {}: multi-layer is not implemented yet (layers must be 1)",
-                    p.name
+                    "profile {}: layers {} out of range 1..={MAX_LAYERS}",
+                    p.name, p.aggregator.layers
                 )));
             }
             match p.router.policy.as_str() {
@@ -281,10 +292,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_multi_layer() {
+    fn accepts_bounded_multi_layer() {
         let mut p = profile("research", vec!["b/a", "b/b"], 2);
-        p.aggregator.layers = 2;
-        assert!(matches!(cfg(vec![p]).validate(), Err(Error::Config(_))));
+        p.aggregator.layers = MAX_LAYERS;
+        assert!(cfg(vec![p]).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_or_excessive_layers() {
+        let mut zero = profile("research", vec!["b/a", "b/b"], 2);
+        zero.aggregator.layers = 0;
+        assert!(matches!(cfg(vec![zero]).validate(), Err(Error::Config(_))));
+
+        let mut too_deep = profile("research", vec!["b/a", "b/b"], 2);
+        too_deep.aggregator.layers = MAX_LAYERS + 1;
+        assert!(matches!(
+            cfg(vec![too_deep]).validate(),
+            Err(Error::Config(_))
+        ));
     }
 
     #[test]

@@ -97,9 +97,17 @@ hidden.
 
 ## Layers
 
-The pipeline supports multiple refine layers, but the default is a single layer. Depth scales
-quality but multiplies cost and latency and increases the surface for a bad member's influence
-to propagate, so additional layers are reserved for offline or high-stakes paths.
+The pipeline supports multiple refine layers, but the default is a single layer. Layer 1 answers
+the raw query; each subsequent layer re-runs the full panel with the previous layer's anonymized
+answers as reference, so members refine rather than start fresh. The final layer feeds the judge
+and synthesizer.
+
+Because every layer is a full panel fan-out, token cost and call count scale linearly with depth:
+N layers spend N times the panel cost (plus one judge and one synthesis call), and this shows up
+directly in the aggregated `usage`. Latency scales with depth as well, since layers run in
+sequence. Depth also increases the surface for a bad member's influence to propagate, so layers
+are bounded (1 to 4) and additional layers are reserved for offline or high-stakes paths. The
+quality side of the curve is a benchmark target tracked in issue #20, not a number asserted here.
 
 ## Failure handling
 
