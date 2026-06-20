@@ -113,6 +113,10 @@ curl http://localhost:8080/v1/chat/completions \
   -d '{"model": "fusion/research", "messages": [{"role": "user", "content": "..."}]}'
 ```
 
+chorus runs against any OpenAI-compatible upstream. See [docs/backends.md](docs/backends.md)
+for per-backend setup (vLLM, Ollama, a hosted API, a gateway) with complete, CI-validated
+configs under [`examples/`](examples/).
+
 ## Comparison
 
 - **vs a single model.** chorus trades latency and tokens for quality on hard queries, and the

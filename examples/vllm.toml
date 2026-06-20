@@ -1,0 +1,41 @@
+# chorus against a local vLLM server.
+#
+# A vLLM server serves a single model per instance at /v1. chorus speaks to one
+# backend, so the natural panel on a single vLLM is self-MoA: sample the one
+# served model several times with varied temperature for diversity. To run a
+# panel of distinct models on vLLM, put a gateway in front of several vLLM
+# instances and use examples/gateway.toml instead.
+#
+#   export CHORUS_BACKEND_KEY=...        # matches vLLM --api-key, or any value if unset
+#   vllm serve meta-llama/Llama-3.1-8B-Instruct --api-key "$CHORUS_BACKEND_KEY"
+#   CHORUS_CONFIG=examples/vllm.toml cargo run -p chorus-server
+
+[server]
+bind = "0.0.0.0:8080"
+max_concurrent_requests = 64
+
+[backend]
+base_url = "http://localhost:8000/v1"
+api_key_env = "CHORUS_BACKEND_KEY"
+timeout_ms = 120000
+
+[[profiles]]
+name = "research"
+
+  [profiles.router]
+  policy = "always_fuse"
+  single_model = "meta-llama/Llama-3.1-8B-Instruct"
+
+  [profiles.panel]
+  # self_moa samples members[0] `samples` times with varied temperature.
+  # min_quorum is bounded by the member count (1 here), so keep it at 1; the
+  # panel still fans out to `samples` calls of the single served model.
+  members = ["meta-llama/Llama-3.1-8B-Instruct"]
+  self_moa = true
+  samples = 3
+  min_quorum = 1
+  timeout_ms = 90000
+
+  [profiles.aggregator]
+  judge = "meta-llama/Llama-3.1-8B-Instruct"
+  synthesizer = "meta-llama/Llama-3.1-8B-Instruct"
