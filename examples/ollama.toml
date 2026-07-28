@@ -1,0 +1,35 @@
+# chorus against a local Ollama server.
+#
+# Ollama exposes an OpenAI-compatible endpoint at /v1 and serves many models
+# from one process, so a real multi-model panel works against a single backend.
+# Ollama does not require an API key; set api_key_env to any variable holding a
+# non-empty placeholder (the OpenAI-compatible endpoint ignores the value).
+#
+#   export CHORUS_BACKEND_KEY=ollama
+#   ollama pull llama3.1 && ollama pull qwen2.5 && ollama pull mistral
+#   CHORUS_CONFIG=examples/ollama.toml cargo run -p chorus-server
+
+[server]
+bind = "0.0.0.0:8080"
+max_concurrent_requests = 64
+
+[backend]
+base_url = "http://localhost:11434/v1"
+api_key_env = "CHORUS_BACKEND_KEY"
+timeout_ms = 120000
+
+[[profiles]]
+name = "research"
+
+  [profiles.router]
+  policy = "always_fuse"
+  single_model = "llama3.1"
+
+  [profiles.panel]
+  members = ["llama3.1", "qwen2.5", "mistral"]
+  min_quorum = 2
+  timeout_ms = 90000
+
+  [profiles.aggregator]
+  judge = "llama3.1"
+  synthesizer = "qwen2.5"

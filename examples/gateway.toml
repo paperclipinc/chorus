@@ -1,0 +1,39 @@
+# chorus against an OpenAI-compatible gateway (for example Bifrost).
+#
+# A gateway gives chorus one OpenAI-compatible endpoint that fans out to many
+# providers and local servers behind it. This is the most flexible panel setup:
+# the members can be models from different providers, all reached through the
+# single backend URL, with the gateway owning provider keys and routing. chorus
+# still holds only the gateway's key.
+#
+#   export CHORUS_BACKEND_KEY=...        # the gateway's key
+#   CHORUS_CONFIG=examples/gateway.toml cargo run -p chorus-server
+
+[server]
+bind = "0.0.0.0:8080"
+max_concurrent_requests = 64
+
+[backend]
+base_url = "http://localhost:8080/v1"
+api_key_env = "CHORUS_BACKEND_KEY"
+timeout_ms = 120000
+
+# Routes easy queries to a single model and fuses only the hard ones; the
+# classifier model is a cheap, fast model reached through the same gateway.
+[[profiles]]
+name = "research-routed"
+
+  [profiles.router]
+  policy = "classifier"
+  classifier_model = "openai/gpt-4o-mini"
+  threshold = 0.5
+  single_model = "openai/gpt-4o"
+
+  [profiles.panel]
+  members = ["openai/gpt-4o", "anthropic/claude-sonnet", "google/gemini-pro"]
+  min_quorum = 2
+  timeout_ms = 90000
+
+  [profiles.aggregator]
+  judge = "anthropic/claude-sonnet"
+  synthesizer = "openai/gpt-4o"

@@ -1,0 +1,34 @@
+# chorus against a hosted OpenAI-compatible API.
+#
+# Any hosted endpoint that speaks the OpenAI chat-completion contract works:
+# point base_url at it and name the env var that holds the bearer key. chorus
+# treats the key as opaque and inherits the upstream's auth, routing, and
+# logging. Use the model ids that provider exposes.
+#
+#   export CHORUS_BACKEND_KEY=sk-...
+#   CHORUS_CONFIG=examples/openai-compatible.toml cargo run -p chorus-server
+
+[server]
+bind = "0.0.0.0:8080"
+max_concurrent_requests = 64
+
+[backend]
+base_url = "https://api.your-provider.example/v1"
+api_key_env = "CHORUS_BACKEND_KEY"
+timeout_ms = 120000
+
+[[profiles]]
+name = "research"
+
+  [profiles.router]
+  policy = "always_fuse"
+  single_model = "provider/strong-model"
+
+  [profiles.panel]
+  members = ["provider/model-a", "provider/model-b", "provider/model-c"]
+  min_quorum = 2
+  timeout_ms = 90000
+
+  [profiles.aggregator]
+  judge = "provider/strong-model"
+  synthesizer = "provider/other-strong-model"
