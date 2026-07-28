@@ -106,6 +106,28 @@ directly, with no meta commentary about the responses or the analysis."
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
 
+/// The refine messages for a multi-layer panel member: given the user query and
+/// the previous layer's anonymized candidate responses, write an improved
+/// standalone answer (not an analysis). The same hardening as the judge and
+/// synthesizer applies, so a member does not simply replicate or average the
+/// prior layer. Used only when `aggregator.layers > 1` (issue #20).
+///
+/// # Panics
+///
+/// Does not panic; `format!` is infallible here.
+#[must_use]
+pub fn refine_messages(query: &str, references: &str, single_source_cap: bool) -> Vec<ChatMessage> {
+    let h = hardening(single_source_cap);
+    let system = format!(
+        "You are answering a user query. You are also given several anonymized candidate \
+responses from other models for the same query. {h} Use them only to improve your own answer: \
+correct errors, fill gaps, and add support. Write a single improved standalone answer to the \
+query, directly, with no meta commentary about the other responses."
+    );
+    let user = format!("User query:\n{query}\n\nCandidate responses:\n{references}");
+    vec![ChatMessage::system(system), ChatMessage::user(user)]
+}
+
 /// Messages that ask a cheap model to rate query difficulty as a single number.
 #[must_use]
 pub fn difficulty_messages(query: &str) -> Vec<ChatMessage> {
@@ -228,6 +250,21 @@ mod tests {
             count, 2,
             "expected exactly 2 'Response A:' entries (slots 0 and 26), got {count}"
         );
+    }
+
+    #[test]
+    fn refine_prompt_asks_for_an_answer_with_hardening() {
+        let msgs = refine_messages("q", "refs", true);
+        let sys = &msgs[0].content;
+        // It must ask for an improved standalone answer, not an analysis.
+        assert!(sys.contains("improved standalone answer"));
+        assert!(!sys.contains("STRUCTURED ANALYSIS"));
+        // Hardening is carried, including the dominance clause when capped.
+        assert!(sys.contains("biased, incorrect"));
+        assert!(sys.contains("Do not let any single response dominate"));
+        // The user message carries the query and the references.
+        assert!(msgs[1].content.contains("User query:"));
+        assert!(msgs[1].content.contains("refs"));
     }
 
     #[test]
